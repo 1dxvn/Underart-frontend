@@ -39,27 +39,40 @@ async function getArtwork(id: string) {
 
 export async function artworkDetails(root: HTMLElement, id: string, params: URLSearchParams) {
   const path = `/artworks/${encodeURIComponent(id)}`;
-  const [detail, auctions] = await Promise.all([
-    getArtwork(id),
-    api<Page<Auction>>(`/auctions?artworkId=${encodeURIComponent(id)}&page=${pageNumber(params)}&size=10`, { anonymous: true }),
-  ]);
+  const auctionsRequest = api<Page<Auction>>(`/auctions?artworkId=${encodeURIComponent(id)}&page=${pageNumber(params)}&size=10`, { anonymous: true })
+    .catch(() => null);
+  const detail = await getArtwork(id);
   const artwork = detail.artwork;
-  const artist = await api<{ username: string }>(`/users/${encodeURIComponent(artwork.artistId)}`, { anonymous: true }).catch(() => null);
+  const artistRequest = api<{ username: string }>(`/users/${encodeURIComponent(artwork.artistId)}`, { anonymous: true }).catch(() => null);
   root.innerHTML = `<div class="container page">
     <a class="text-link" href="#/artworks">Volver a obras</a>
-    ${heading('Obra', escapeHtml(artwork.title), escapeHtml(artist?.username ?? ''))}
+    ${heading('Obra', escapeHtml(artwork.title))}
     <div class="detail-grid">${gallery(detail)}<div class="panel detail-copy">
-      ${artist ? `<p><a class="text-link" href="#/users/${escapeHtml(artwork.artistId)}">Ver perfil de ${escapeHtml(artist.username)}</a></p>` : ''}
+      <div id="artwork-artist"></div>
       <h2>Sobre la obra</h2><p>${escapeHtml(artwork.description || 'Sin descripción.')}</p>
       <dl class="data-list">${artwork.technique ? `<div><dt>Técnica</dt><dd>${escapeHtml(artwork.technique)}</dd></div>` : ''}
       ${artwork.dimensions ? `<div><dt>Dimensiones</dt><dd>${escapeHtml(artwork.dimensions)}</dd></div>` : ''}
       ${artwork.weightKg ? `<div><dt>Peso</dt><dd>${artwork.weightKg} kg</dd></div>` : ''}</dl>
       <div class="actions">${favoriteForm(detail)}<span class="muted">${detail.favoritesCount} favoritos</span></div>
       <h3>Subastas de esta obra</h3>
-      ${auctions.items.length ? `<ul class="plain-list">${auctions.items.map(auction => `<li><a class="text-link" href="#/auctions/${escapeHtml(auction.id)}">${auctionLabel(auction)} · ${dateTime(auction.endDate)}</a></li>`).join('')}</ul>` : '<p class="muted">Esta obra aún no tiene subastas.</p>'}
-      ${pageLinks(path, params, auctions.page, auctions.totalPages)}
+      <div id="artwork-auctions" aria-live="polite"><p class="muted">Cargando subastas…</p></div>
     </div></div></div>`;
   bindFavorite(root, detail);
+  await Promise.all([
+    artistRequest.then(artist => {
+      if (!artist || !root.isConnected) return;
+      root.querySelector('#artwork-artist')!.innerHTML = `<p><a class="text-link" href="#/users/${escapeHtml(artwork.artistId)}">Ver perfil de ${escapeHtml(artist.username)}</a></p>`;
+    }),
+    auctionsRequest.then(auctions => {
+      if (!root.isConnected) return;
+      root.querySelector('#artwork-auctions')!.innerHTML = auctions
+        ? (auctions.items.length
+          ? `<ul class="plain-list">${auctions.items.map(auction => `<li><a class="text-link" href="#/auctions/${escapeHtml(auction.id)}">${auctionLabel(auction)} · ${dateTime(auction.endDate)}</a></li>`).join('')}</ul>`
+          : '<p class="muted">Esta obra aún no tiene subastas.</p>')
+          + pageLinks(path, params, auctions.page, auctions.totalPages)
+        : empty('Las subastas de esta obra no están disponibles en este momento.');
+    }),
+  ]);
 }
 
 function auctionActions(detail: AuctionDetail, own: boolean) {
@@ -111,11 +124,14 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
   const path = `/auctions/${encodeURIComponent(id)}`;
   const detail = await api<AuctionDetail>(path, { anonymous: true });
   const { auction } = detail;
+  const sealed = auction.type === 'SEALED' && auction.status === 'ACTIVE';
+  const bidsRequest = !sealed && currentSession()
+    ? api<Page<Bid>>(`${path}/bids?page=${pageNumber(params)}&size=10`).catch(() => null)
+    : null;
   const artwork = await getArtwork(auction.artworkId);
   const own = currentSession()?.user.id === artwork.artwork.artistId;
   const status = auctionLabel(auction);
   const scheduled = status === 'Programada';
-  const sealed = auction.type === 'SEALED' && auction.status === 'ACTIVE';
   const dutch = auction.type === 'DUTCH';
   const currency = auction.currency ?? undefined;
   root.innerHTML = `<div class="container page"><a class="text-link" href="#/auctions">Volver a subastas</a>
@@ -188,7 +204,7 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     bids.innerHTML = `<a class="text-link" href="${loginLink()}">Inicia sesión para ver el historial completo</a>`;
     return;
   }
-  const response = await api<Page<Bid>>(`${path}/bids?page=${pageNumber(params)}&size=10`).catch(() => null);
+  const response = await bidsRequest;
   bids.innerHTML = response ? (response.items.length ? `<ul class="rows">${response.items.map(bid => `<li><strong>${money(bid.amount, currency)}${bid.buyerId === currentSession()?.user.id ? ' · Tu puja' : ''}</strong><span>${dateTime(bid.bidTime)}</span></li>`).join('')}</ul>` : empty('Todavía no hay pujas.'))
     + pageLinks(path, params, response.page, response.totalPages) : empty('El historial no está disponible en este momento.');
 }

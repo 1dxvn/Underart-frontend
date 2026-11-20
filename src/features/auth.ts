@@ -21,6 +21,20 @@ async function login(root: HTMLElement, account: ReturnType<typeof credentials>,
   if (root.isConnected) location.hash = next;
 }
 
+async function withProgress(form: HTMLFormElement, message: string, action: () => Promise<void>) {
+  const status = form.querySelector<HTMLElement>('.feedback')!;
+  status.textContent = message;
+  const slow = window.setTimeout(() => {
+    status.textContent = message + ' El servidor está tardando en responder.';
+  }, 6000);
+  try {
+    await action();
+  } finally {
+    window.clearTimeout(slow);
+    status.textContent = '';
+  }
+}
+
 export function auth(root: HTMLElement, register: boolean, params: URLSearchParams) {
   const next = destination(params);
   const nextQuery = escapeHtml(encodeURIComponent(next));
@@ -51,8 +65,14 @@ export function auth(root: HTMLElement, register: boolean, params: URLSearchPara
         <p id="code-status" class="feedback" role="status"></p>
       </form></section>` : ''}
     </div>`;
+  // Start waking the API while the visitor fills either account form.
+  if (import.meta.env.PROD) {
+    void api('/auctions?page=0&size=1', { anonymous: true }).catch(() => {});
+  }
   if (!register) {
-    bindForm(root, '#auth', data => login(root, credentials(data), next));
+    bindForm(root, '#auth', async (data, form) => {
+      await withProgress(form, 'Iniciando sesión…', () => login(root, credentials(data), next));
+    });
     return;
   }
 
@@ -66,11 +86,6 @@ export function auth(root: HTMLElement, register: boolean, params: URLSearchPara
   let pending: (ReturnType<typeof credentials> & { username: string }) | undefined;
   let registered = false;
 
-  // Give the API time to wake up while the visitor fills out the form.
-  if (import.meta.env.PROD) {
-    void api('/auctions?page=0&size=1', { anonymous: true }).catch(() => {});
-  }
-
   async function sendCode(email: string) {
     await api('/users/register/code', { method: 'POST', anonymous: true, body: { email } });
   }
@@ -80,17 +95,7 @@ export function auth(root: HTMLElement, register: boolean, params: URLSearchPara
     if (!/\p{L}/u.test(account.password) || !/\p{Nd}/u.test(account.password)) {
       throw new Error('La contraseña debe incluir una letra y un número.');
     }
-    const feedback = form.querySelector<HTMLElement>('.feedback')!;
-    feedback.textContent = 'Solicitando el código de verificación…';
-    const slow = window.setTimeout(() => {
-      feedback.textContent = 'El servidor está tardando en responder. Deja esta página abierta mientras se envía el código.';
-    }, 6000);
-    try {
-      await sendCode(account.email);
-    } finally {
-      window.clearTimeout(slow);
-      feedback.textContent = '';
-    }
+    await withProgress(form, 'Solicitando el código de verificación…', () => sendCode(account.email));
     pending = account;
     registered = false;
     verification.reset();
