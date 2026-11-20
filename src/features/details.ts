@@ -43,13 +43,26 @@ export async function artworkDetails(root: HTMLElement, id: string, params: URLS
     .catch(() => null);
   const detail = await getArtwork(id);
   const artwork = detail.artwork;
+  const own = currentSession()?.user.id === artwork.artistId;
   const artistRequest = api<{ username: string }>(`/users/${encodeURIComponent(artwork.artistId)}`, { anonymous: true }).catch(() => null);
   root.innerHTML = `<div class="container page">
     <a class="text-link" href="#/artworks">Volver a obras</a>
     ${heading('Obra', escapeHtml(artwork.title))}
     <div class="detail-grid">${gallery(detail)}<div class="panel detail-copy">
       <div id="artwork-artist"></div>
-      <h2>Sobre la obra</h2><p>${escapeHtml(artwork.description || 'Sin descripción.')}</p>
+      <div class="auction-card-header">
+        <h2>Sobre la obra</h2>
+        ${own ? `<button type="button" class="button secondary auction-icon" id="open-delete-artwork" title="Eliminar obra definitivamente" aria-label="Eliminar obra definitivamente">${trashIcon}</button>` : ''}
+      </div>
+      ${own ? `<dialog class="panel auction-dialog" id="delete-artwork-dialog" aria-labelledby="delete-artwork-title">
+        <form id="delete-artwork" class="form-stack">
+          <h2 id="delete-artwork-title">Eliminar obra definitivamente</h2>
+          <p>Se eliminará la obra y su multimedia. Esta acción es permanente.</p>
+          <div class="actions"><button class="button" type="submit">Eliminar definitivamente</button>
+            <button class="button secondary" id="close-delete-artwork" type="button">Volver</button></div>${feedback}
+        </form>
+      </dialog>` : ''}
+      <p>${escapeHtml(artwork.description || 'Sin descripción.')}</p>
       <dl class="data-list">${artwork.technique ? `<div><dt>Técnica</dt><dd>${escapeHtml(artwork.technique)}</dd></div>` : ''}
       ${artwork.dimensions ? `<div><dt>Dimensiones</dt><dd>${escapeHtml(artwork.dimensions)}</dd></div>` : ''}
       ${artwork.weightKg ? `<div><dt>Peso</dt><dd>${artwork.weightKg} kg</dd></div>` : ''}</dl>
@@ -58,6 +71,13 @@ export async function artworkDetails(root: HTMLElement, id: string, params: URLS
       <div id="artwork-auctions" aria-live="polite"><p class="muted">Cargando subastas…</p></div>
     </div></div></div>`;
   bindFavorite(root, detail);
+  const deleteDialog = root.querySelector<HTMLDialogElement>('#delete-artwork-dialog');
+  root.querySelector('#open-delete-artwork')?.addEventListener('click', () => deleteDialog?.showModal());
+  root.querySelector('#close-delete-artwork')?.addEventListener('click', () => deleteDialog?.close());
+  bindForm(root, '#delete-artwork', async () => {
+    await api(path, { method: 'DELETE' });
+    if (root.isConnected) location.hash = '/artworks';
+  });
   await Promise.all([
     artistRequest.then(artist => {
       if (!artist || !root.isConnected) return;
