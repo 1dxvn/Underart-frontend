@@ -70,7 +70,7 @@ export async function catalog(root: HTMLElement, kind: 'auctions' | 'artworks', 
   root.innerHTML = `<div class="container page">${heading('Explorar', auctions ? 'Subastas' : 'Catálogo de obras')}
     ${catalogNav(kind)}<form class="filters">
     ${auctions
-      ? options('status', 'Estado', [['', 'Todos'], ['ACTIVE', 'Activas'], ['CLOSED', 'Cerradas'], ['CANCELLED', 'Canceladas']])
+      ? options('status', 'Estado', [['', 'Todas'], ['ACTIVE', 'Activas'], ['CLOSED', 'Cerradas']])
         + options('type', 'Modalidad', [['', 'Todas'], ['SIMPLE', 'Pujas'], ['IMMEDIATE', 'Compra inmediata'], ['DUTCH', 'Holandesa'], ['SEALED', 'Sobre cerrado']])
       : `<label>Buscar obra<input name="q" type="search" value="${escapeHtml(params.get('q'))}" placeholder="Título o descripción"></label>
          <label>Técnica<input name="technique" value="${escapeHtml(params.get('technique'))}" placeholder="Óleo, fotografía…"></label>`}

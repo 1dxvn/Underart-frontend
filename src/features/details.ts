@@ -146,7 +146,11 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     <div><dt>Pujas registradas</dt><dd>${auction.bidCount}</dd></div><div><dt>Inicio</dt><dd>${dateTime(auction.startDate)}</dd></div>
     <div><dt>Cierre</dt><dd>${dateTime(auction.endDate)}</dd></div></dl>
     ${status === 'En curso' || scheduled ? `<p class="countdown">${scheduled ? 'Empieza en' : 'Termina en'} · <span id="countdown"></span></p>` : ''}
-    ${auctionActions(detail, own)}</section></div>
+    ${auctionActions(detail, own)}
+    ${own && auction.status === 'ACTIVE' && !auction.bidCount ? `<form id="delete-auction" class="form-stack spaced">
+      <label class="check"><input type="checkbox" required> Confirmo que quiero retirar esta subasta del catálogo.</label>
+      <button class="button secondary" type="submit">Eliminar subasta</button>${feedback}</form>` : ''}
+    </section></div>
     <section class="history"><h2>Historial de pujas</h2><div id="bids"></div></section></div>`;
   const timer = root.querySelector<HTMLElement>('#countdown');
   if (timer) countdown(scheduled ? auction.startDate : auction.endDate, timer, scheduled ? 'Inicio' : 'Tiempo cumplido');
@@ -165,6 +169,10 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     }, 3000);
   }
   bindFavorite(root, artwork);
+  bindForm(root, '#delete-auction', async () => {
+    await api(path, { method: 'DELETE' });
+    if (root.isConnected) location.hash = '/account/auctions';
+  });
   bindForm(root, '#accept-bid', async () => {
     const order = await api<Order>(`${path}/accept-bid`, { method: 'POST', body: { bidId: detail.highestBid?.id } });
     if (root.isConnected) location.hash = `/orders/${order.id}`;
