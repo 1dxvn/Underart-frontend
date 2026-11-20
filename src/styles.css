@@ -32,10 +32,11 @@ main { min-height: 69vh; }
 .skip { position: absolute; z-index: 4; top: .5rem; left: .5rem; padding: .6rem; background: var(--paper); transform: translateY(-160%); }
 .skip:focus { transform: none; }
 #header { background: var(--paper); border-bottom: 1px solid var(--line); }
-.masthead { min-height: 4.75rem; display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; }
-.wordmark { display: inline-block; font-family: var(--serif); line-height: 1; font-size: 2.7rem; letter-spacing: -.05em; white-space: nowrap; }
+.masthead { min-height: 4.75rem; display: flex; align-items: center; gap: clamp(1.5rem, 3.5vw, 3rem); }
+.wordmark { display: inline-block; font-family: var(--serif); line-height: 1; font-size: clamp(3rem, 4vw, 3.65rem); letter-spacing: -.05em; white-space: nowrap; }
 .wordmark span { color: var(--wine); }
 .main-nav, .header-actions, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.2rem; }
+.header-actions { margin-inline-start: auto; justify-content: flex-end; }
 .header-actions, .main-nav { font-size: .9rem; font-weight: 600; }
 .profile-link { max-width: 11rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
 .main-nav a:hover, .header-actions a:hover, [aria-current="page"] { color: var(--wine); }
@@ -119,14 +120,14 @@ footer .container { display: flex; justify-content: space-between; align-items: 
   .hero, .detail-grid { grid-template-columns: minmax(0, 1fr); }
   .hero-copy { padding-bottom: 2.5rem; }
   .hero-image { min-height: 17rem; }
-  .masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; padding-block: .65rem; }
-  .main-nav { grid-row: 2; grid-column: 1 / -1; padding: .4rem 0; }
-  .header-actions { gap: .6rem; justify-content: flex-end; }
+  .masthead { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .55rem clamp(.85rem, 3vw, 1.5rem); padding-block: .65rem; }
+  .main-nav { gap: .45rem clamp(.55rem, 2vw, 1.2rem); }
+  .header-actions { grid-column: 1 / -1; gap: .6rem; margin-inline-start: 0; }
   .container { width: min(100% - 2rem, 76rem); }
 }
 
 @media (max-width: 385px) {
-  .wordmark { font-size: 2.2rem; }
+  .wordmark { font-size: 2.6rem; }
   .header-actions { font-size: .82rem; }
   .button.compact { padding-inline: .35rem; font-size: .82rem; }
 }
@@ -139,8 +140,18 @@ footer .container { display: flex; justify-content: space-between; align-items: 
   .profile-link { max-width: 8rem; }
 }
 
-.auction-management { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+.auction-card-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.auction-card-header .eyebrow { margin: 0; }
+.auction-management { display: flex; gap: .5rem; margin-inline-start: auto; }
 .auction-icon.button { min-width: 44px; min-height: 44px; padding: .55rem; }
 .auction-icon svg { width: 1.2rem; height: 1.2rem; }
-.auction-dialog { width: min(28rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); }
+.auction-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(28rem, calc(100% - 2rem));
+  height: fit-content;
+  max-height: calc(100% - 2rem);
+  overflow: auto;
+}
 .auction-dialog::backdrop { background: rgb(0 0 0 / .48); }

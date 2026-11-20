@@ -197,7 +197,11 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     ${heading(formatLabel(auction), escapeHtml(auction.artworkTitle))}
     <div class="detail-grid"><div>${gallery(artwork)}<div class="actions spaced">
     <a class="text-link" href="#/artworks/${escapeHtml(auction.artworkId)}">Ficha de la obra</a>${favoriteForm(artwork)}</div></div>
-    <section class="panel detail-copy"><p class="eyebrow">${status}</p>
+    <section class="panel detail-copy">
+    <div class="auction-card-header"><p class="eyebrow">${status}</p>
+    ${own && auction.status === 'ACTIVE' && Date.parse(auction.endDate) > Date.now() && !auction.bidCount
+      ? auctionManagement(auction) : ''}
+    </div>
     <p class="muted">${dutch ? 'Precio vigente' : sealed || !auction.bidCount ? 'Precio base' : 'Puja actual'}</p>
     <p class="price" id="current-price">${money(auction.currentPrice, currency)}</p>
     <dl class="data-list">${detail.minimumNextBid == null ? '' : `<div><dt>${sealed ? 'Importe mínimo' : 'Próxima puja mínima'}</dt><dd>${money(detail.minimumNextBid, currency)}</dd></div>`}
@@ -206,8 +210,6 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     <div><dt>Cierre</dt><dd>${dateTime(auction.endDate)}</dd></div></dl>
     ${status === 'En curso' || scheduled ? `<p class="countdown">${scheduled ? 'Empieza en' : 'Termina en'} · <span id="countdown"></span></p>` : ''}
     ${auctionActions(detail, own)}
-    ${own && auction.status === 'ACTIVE' && Date.parse(auction.endDate) > Date.now() && !auction.bidCount
-      ? auctionManagement(auction) : ''}
     </section></div>
     <section class="history"><h2>Historial de pujas</h2><div id="bids"></div></section></div>`;
   const timer = root.querySelector<HTMLElement>('#countdown');
