@@ -66,16 +66,31 @@ export function auth(root: HTMLElement, register: boolean, params: URLSearchPara
   let pending: (ReturnType<typeof credentials> & { username: string }) | undefined;
   let registered = false;
 
+  // Give the API time to wake up while the visitor fills out the form.
+  if (import.meta.env.PROD) {
+    void api('/auctions?page=0&size=1', { anonymous: true }).catch(() => {});
+  }
+
   async function sendCode(email: string) {
     await api('/users/register/code', { method: 'POST', anonymous: true, body: { email } });
   }
 
-  bindForm(root, '#auth', async data => {
+  bindForm(root, '#auth', async (data, form) => {
     const account = { ...credentials(data), username: value(data, 'username') };
     if (!/\p{L}/u.test(account.password) || !/\p{Nd}/u.test(account.password)) {
       throw new Error('La contraseña debe incluir una letra y un número.');
     }
-    await sendCode(account.email);
+    const feedback = form.querySelector<HTMLElement>('.feedback')!;
+    feedback.textContent = 'Solicitando el código de verificación…';
+    const slow = window.setTimeout(() => {
+      feedback.textContent = 'El servidor está tardando en responder. Deja esta página abierta mientras se envía el código.';
+    }, 6000);
+    try {
+      await sendCode(account.email);
+    } finally {
+      window.clearTimeout(slow);
+      feedback.textContent = '';
+    }
     pending = account;
     registered = false;
     verification.reset();
@@ -89,17 +104,21 @@ export function auth(root: HTMLElement, register: boolean, params: URLSearchPara
 
   bindForm(root, '#verification', async data => {
     if (!pending) return;
+    const feedback = verification.querySelector<HTMLElement>('.feedback')!;
     if (!registered) {
+      feedback.textContent = 'Verificando el código y creando tu cuenta…';
       await api('/users/register', { method: 'POST', anonymous: true,
         body: { ...pending, verificationCode: value(data, 'verificationCode') } });
       registered = true;
     }
+    feedback.textContent = 'Cuenta creada. Iniciando sesión…';
     await login(root, pending, next);
   });
 
   resend.addEventListener('click', async () => {
-    if (!pending || root.dataset.busy) return;
+    if (!pending || root.dataset.busy || resend.disabled) return;
     resend.disabled = true;
+    status.textContent = 'Solicitando otro código…';
     try {
       await sendCode(pending.email);
       status.textContent = 'Revisa tu bandeja de entrada. Puedes solicitar otro código en un minuto.';
