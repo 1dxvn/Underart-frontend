@@ -88,6 +88,7 @@ export interface AuctionDetail {
 
 export interface Order {
   checkout: boolean;
+  externalPayment?: boolean;
   id: string;
   auctionId: string;
   winnerId: string;
@@ -95,7 +96,7 @@ export interface Order {
   shippingCost: number;
   platformFee: number;
   totalPaid: number;
-  paymentStatus: 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED' | 'EXPIRED';
+  paymentStatus: 'PENDING' | 'PROCESSING' | 'COORDINATING' | 'REPORTED' | 'PAID' | 'FAILED' | 'EXPIRED';
   shippingStatus: 'PENDING' | 'SHIPPED' | 'DELIVERED';
   carrier: string | null;
   trackingNumber: string | null;

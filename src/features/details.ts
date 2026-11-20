@@ -252,7 +252,7 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
   bindAuctionManagement(root, auction, path);
   bindForm(root, '#accept-bid', async () => {
     const order = await api<Order>(`${path}/accept-bid`, { method: 'POST', body: { bidId: detail.highestBid?.id } });
-    if (root.isConnected) location.hash = `/orders/${order.id}`;
+    if (root.isConnected) location.hash = `/orders/${order.id}?chat=1`;
   });
   const bidInput = root.querySelector<HTMLInputElement>('#bid [name="amount"]');
   if (bidInput && currency === 'COP') {
@@ -278,7 +278,7 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
   });
   bindForm(root, '#buy', async () => {
     const order = await api<Order>(`${path}/buy-now`, { method: 'POST' });
-    if (root.isConnected) location.hash = `/orders/${order.id}`;
+    if (root.isConnected) location.hash = `/orders/${order.id}?chat=1`;
   });
   const bids = root.querySelector<HTMLElement>('#bids')!;
   if (sealed) {

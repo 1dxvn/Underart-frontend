@@ -94,7 +94,7 @@ async function render(navigation: boolean) {
     if (section === 'account' && !identifier && (!sub || isAccountSection(sub))) {
       return await account(root, sub && isAccountSection(sub) ? sub : 'purchases', params);
     }
-    if (section === 'orders' && sub && !identifier) return await orderDetails(root, sub);
+    if (section === 'orders' && sub && !identifier) return await orderDetails(root, sub, params.get('chat') === '1');
     if (path === '/publish') return await publish(root);
     if (path === '/publish/auction') return await publishAuction(root, params.get('artworkId'));
     if (section === 'publish' && sub === 'media' && identifier && !extra) return await publish(root, identifier);

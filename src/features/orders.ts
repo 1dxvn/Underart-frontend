@@ -1,13 +1,18 @@
 import { api, currentSession, saveSession } from '../api/client';
 import { mountMercadoPagoCard } from '../api/mercado-pago';
+import { orderConversation, bindOrderConversation } from './order-conversation';
 import { mountCard } from '../api/stripe';
 import type { Order, User } from '../api/types';
 import { bindForm, dateTime, errorText, escapeHtml, feedback, heading, money, refreshView, value } from '../ui/html';
 
-const paymentLabels = { PENDING: 'Pendiente de pago', PROCESSING: 'Pago en proceso', PAID: 'Pagado', FAILED: 'Pago rechazado', EXPIRED: 'Pago vencido' };
+const paymentLabels = { PENDING: 'Pendiente de pago', PROCESSING: 'Pago en proceso', COORDINATING: 'Coordinando pago externo', REPORTED: 'Pago externo reportado', PAID: 'Pagado', FAILED: 'Pago rechazado', EXPIRED: 'Pago vencido' };
 const shippingLabels = { PENDING: 'Pendiente de envío', SHIPPED: 'Enviado', DELIVERED: 'Entregado' };
 
-export const paymentLabel = (order: Order) => order.checkout && order.paymentStatus === 'EXPIRED' ? 'Pago cancelado o vencido' : paymentLabels[order.paymentStatus];
+export const paymentLabel = (order: Order) => {
+  if (order.paymentStatus === 'PAID' && order.externalPayment) return 'Pago confirmado por el artista';
+  if (order.checkout && order.paymentStatus === 'EXPIRED') return 'Pago cancelado o vencido';
+  return paymentLabels[order.paymentStatus];
+};
 export const shippingLabel = (order: Order) => shippingLabels[order.shippingStatus];
 
 interface PaymentConfiguration {
@@ -53,7 +58,7 @@ function fulfillment(order: Order, buyer: boolean) {
   return '';
 }
 
-export async function orderDetails(root: HTMLElement, id: string) {
+export async function orderDetails(root: HTMLElement, id: string, openChat = false) {
   const path = `/orders/${encodeURIComponent(id)}`;
   const [order, user] = await Promise.all([api<Order>(path), api<User>('/users/me')]);
   const buyer = order.winnerId === user.id;
@@ -65,17 +70,18 @@ export async function orderDetails(root: HTMLElement, id: string) {
     <div class="detail-grid"><section class="panel detail-copy"><h2>Resumen</h2>
       <dl class="data-list"><div><dt>Pago</dt><dd>${paymentLabel(order)}</dd></div><div><dt>Envío</dt><dd>${shippingLabel(order)}</dd></div>
       <div><dt>Subtotal</dt><dd>${amount(order.subtotal)}</dd></div><div><dt>Envío estimado</dt><dd>${amount(order.shippingCost)}</dd></div>
-      <div><dt>Comisión</dt><dd>${amount(order.platformFee)}</dd></div><div><dt>Total</dt><dd><strong>${amount(order.totalPaid)}</strong></dd></div>
-      ${order.paymentStatus !== 'PAID' ? `<div><dt>Plazo de pago</dt><dd>${dateTime(order.paymentDueAt)}</dd></div>` : ''}
+      <div><dt>Comisión</dt><dd>${amount(order.platformFee)}</dd></div><div><dt>${order.externalPayment || order.paymentStatus === 'COORDINATING' ? 'Total de referencia' : 'Total'}</dt><dd><strong>${amount(order.totalPaid)}</strong></dd></div>
+      ${!['PAID', 'REPORTED'].includes(order.paymentStatus) ? `<div><dt>Plazo de pago</dt><dd>${dateTime(order.paymentDueAt)}</dd></div>` : ''}
       ${order.snapshot.shippingAddress ? `<div><dt>Destino</dt><dd>${escapeHtml([order.snapshot.recipient, order.snapshot.shippingAddress, order.snapshot.city].filter(Boolean).join(' · '))}</dd></div>` : ''}
       ${order.trackingNumber ? `<div><dt>Guía</dt><dd>${escapeHtml(order.carrier)} · ${escapeHtml(order.trackingNumber)}</dd></div>` : ''}
       ${order.shippedAt ? `<div><dt>Fecha de envío</dt><dd>${dateTime(order.shippedAt)}</dd></div>` : ''}
       ${order.deliveredAt ? `<div><dt>Fecha de entrega</dt><dd>${dateTime(order.deliveredAt)}</dd></div>` : ''}</dl>
       <a class="text-link" href="#/auctions/${escapeHtml(order.auctionId)}">Ver subasta</a>
-    </section><div class="form-stack">${checkout(order, user, configuration)}
-    ${buyer && order.checkout && ['PENDING', 'FAILED'].includes(order.paymentStatus) ? `<form id="cancel-checkout" class="form-stack">
+    </section><div class="form-stack">${orderConversation(order, user, openChat)}${checkout(order, user, configuration)}
+    ${buyer && order.checkout && ['PENDING', 'FAILED', 'COORDINATING'].includes(order.paymentStatus) ? `<form id="cancel-checkout" class="form-stack">
       <button class="button secondary" type="submit">Cancelar y volver a la subasta</button>${feedback}</form>` : ''}
     ${fulfillment(order, buyer)}</div></div></div>`;
+  bindOrderConversation(root, order, user, path);
   bindForm(root, '#cancel-checkout', async () => {
     await api(`${path}/cancel-checkout`, { method: 'POST' });
     if (root.isConnected) location.hash = `/auctions/${order.auctionId}`;

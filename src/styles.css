@@ -155,3 +155,8 @@ footer .container { display: flex; justify-content: space-between; align-items: 
   overflow: auto;
 }
 .auction-dialog::backdrop { background: rgb(0 0 0 / .48); }
+
+#order-chat summary { cursor: pointer; font-weight: 600; }
+.order-messages { display: grid; gap: .5rem; max-height: 19rem; overflow: auto; }
+.order-message { border-top: 1px solid var(--line); padding: .6rem .1rem; overflow-wrap: anywhere; }
+.order-message p { margin: .25rem 0 0; white-space: pre-wrap; }
