@@ -1,7 +1,8 @@
 import { api, currentSession, saveSession } from '../api/client';
+import { mountMercadoPagoCard } from '../api/mercado-pago';
 import { mountCard } from '../api/stripe';
 import type { Order, User } from '../api/types';
-import { bindForm, dateTime, escapeHtml, feedback, heading, money, refreshView, value } from '../ui/html';
+import { bindForm, dateTime, errorText, escapeHtml, feedback, heading, money, refreshView, value } from '../ui/html';
 
 const paymentLabels = { PENDING: 'Pendiente de pago', PROCESSING: 'Pago en proceso', PAID: 'Pagado', FAILED: 'Pago rechazado', EXPIRED: 'Pago vencido' };
 const shippingLabels = { PENDING: 'Pendiente de envío', SHIPPED: 'Enviado', DELIVERED: 'Entregado' };
@@ -10,7 +11,7 @@ export const paymentLabel = (order: Order) => order.checkout && order.paymentSta
 export const shippingLabel = (order: Order) => shippingLabels[order.shippingStatus];
 
 interface PaymentConfiguration {
-  provider: 'simulated' | 'stripe';
+  provider: 'simulated' | 'stripe' | 'mercadopago';
   publishableKey: string;
 }
 
@@ -20,13 +21,24 @@ function checkout(order: Order, user: User, configuration: PaymentConfiguration 
   const stripe = configuration.provider === 'stripe';
   const processing = order.paymentStatus === 'PROCESSING';
   if (!processing && Date.parse(order.paymentDueAt) <= Date.now()) return '<p>El plazo de pago terminó.</p>';
-  return `<form id="payment" class="panel form-stack"><h2>${stripe ? 'Pago con tarjeta' : 'Pago simulado'}</h2>
-    ${processing ? '<p>Consulta o reintenta el intento de pago en curso desde esta orden.</p>' : `
-    <label>Dirección de entrega<input name="shippingAddress" required maxlength="255" autocomplete="street-address" value="${escapeHtml(user.shippingAddress)}"></label>
-    <label>Ciudad<input name="city" maxlength="255" autocomplete="address-level2" value="${escapeHtml(user.city)}"></label>
+  const mercadoPago = configuration.provider === 'mercadopago';
+  const title = mercadoPago ? 'Mercado Pago · Prueba' : stripe ? 'Pago con tarjeta' : 'Pago simulado';
+  const shipping = `<label>Dirección de entrega<input name="shippingAddress" required maxlength="255" autocomplete="street-address" value="${escapeHtml(user.shippingAddress)}"></label>
+    <label>Ciudad<input name="city" maxlength="255" autocomplete="address-level2" value="${escapeHtml(user.city)}"></label>`;
+  if (mercadoPago && !processing) {
+    if (order.snapshot.currency.toLowerCase() !== 'cop') {
+      return `<section class="panel"><h2>${title}</h2><p>La pasarela de prueba está disponible para órdenes en pesos colombianos (COP).</p></section>`;
+    }
+    return `<section id="mercado-pago" class="panel form-stack">
+      <h2>${title}</h2><p>Usa una tarjeta de prueba de Mercado Pago. No ingreses datos de una tarjeta real.</p>
+      <form id="payment-shipping" class="form-stack">${shipping}</form>
+      <div id="mercado-pago-card"></div>${feedback}</section>`;
+  }
+  return `<form id="payment" class="panel form-stack"><h2>${title}</h2>
+    ${processing ? '<p>Consulta el estado del intento en curso desde esta orden.</p>' : `${shipping}
     ${stripe ? '<label>Tarjeta<div id="stripe-card" class="stripe-card"></div></label>'
       : '<p>El pago se realizará con el método de prueba de Underart.</p>'}`}
-    <button class="button" type="submit">${processing ? 'Reintentar pago' : stripe ? 'Pagar con tarjeta' : 'Confirmar pago simulado'}</button>${feedback}</form>`;
+    <button class="button" type="submit">${processing ? 'Consultar pago' : stripe ? 'Pagar con tarjeta' : 'Confirmar pago simulado'}</button>${feedback}</form>`;
 }
 
 function fulfillment(order: Order, buyer: boolean) {
@@ -68,6 +80,59 @@ export async function orderDetails(root: HTMLElement, id: string) {
     await api(`${path}/cancel-checkout`, { method: 'POST' });
     if (root.isConnected) location.hash = `/auctions/${order.auctionId}`;
   });
+  let shippingAddressSaved = user.shippingAddress;
+  let citySaved = user.city ?? '';
+  async function saveShipping(data: FormData) {
+    const shippingAddress = value(data, 'shippingAddress');
+    const city = value(data, 'city');
+    if (!shippingAddress) throw new Error('Ingresa la dirección de entrega.');
+    if (shippingAddress === shippingAddressSaved && city === citySaved) return;
+    const updated = await api<User>('/users/me', { method: 'PUT', body: { username: user.username, shippingAddress, city } });
+    shippingAddressSaved = updated.shippingAddress;
+    citySaved = updated.city ?? '';
+    const active = currentSession();
+    if (active?.user.id === updated.id) saveSession({ ...active, user: updated });
+  }
+
+  const mercadoCard = root.querySelector<HTMLElement>('#mercado-pago-card');
+  const shippingForm = root.querySelector<HTMLFormElement>('#payment-shipping');
+  const mercadoStatus = root.querySelector<HTMLElement>('#mercado-pago .feedback');
+  if (mercadoCard && configuration && shippingForm && mercadoStatus) {
+    shippingForm.addEventListener('submit', event => event.preventDefault());
+    mercadoStatus.textContent = 'Cargando el formulario de prueba…';
+    let submitting = false;
+    void mountMercadoPagoCard(mercadoCard, configuration.publishableKey, order.totalPaid, {
+      onReady: () => { mercadoStatus.textContent = ''; },
+      onError: () => { mercadoStatus.textContent = 'Mercado Pago no pudo cargar el formulario de prueba.'; },
+      async onSubmit(cardData) {
+        if (submitting) throw new Error('Ya se está consultando el pago.');
+        submitting = true;
+        mercadoStatus.textContent = '';
+        try {
+          if (!shippingForm.reportValidity()) throw new Error('Completa la dirección de entrega.');
+          await saveShipping(new FormData(shippingForm));
+          try {
+            await api<Order>(`${path}/pay`, { method: 'POST', body: {
+              token: cardData.token,
+              method: cardData.payment_method_id,
+              issuer: cardData.issuer_id == null ? null : String(cardData.issuer_id),
+              installments: Number(cardData.installments),
+            } });
+          } catch (error) {
+            const current = await api<Order>(path).catch(() => null);
+            if (mercadoCard.isConnected && current?.paymentStatus === 'PROCESSING') refreshView();
+            throw error;
+          }
+          if (mercadoCard.isConnected) refreshView();
+        } catch (error) {
+          mercadoStatus.textContent = errorText(error);
+          throw error;
+        } finally {
+          submitting = false;
+        }
+      },
+    }).catch(error => { mercadoStatus.textContent = errorText(error); });
+  }
   const cardContainer = root.querySelector<HTMLElement>('#stripe-card');
   const card = cardContainer && configuration ? mountCard(cardContainer, configuration.publishableKey) : null;
   void card?.catch(error => {
@@ -76,13 +141,7 @@ export async function orderDetails(root: HTMLElement, id: string) {
   });
   bindForm(root, '#payment', async data => {
     if (order.paymentStatus !== 'PROCESSING') {
-      const shippingAddress = value(data, 'shippingAddress');
-      const city = value(data, 'city');
-      if (!shippingAddress) throw new Error('Ingresa la dirección de entrega.');
-      let updated = user;
-      if (shippingAddress !== user.shippingAddress || city !== (user.city ?? '')) {
-        updated = await api<User>('/users/me', { method: 'PUT', body: { username: user.username, shippingAddress, city } });
-      }
+      await saveShipping(data);
       let paymentToken: string;
       if (configuration?.provider === 'stripe') {
         if (!card) throw new Error('El formulario de tarjeta no está disponible.');
@@ -92,7 +151,7 @@ export async function orderDetails(root: HTMLElement, id: string) {
       } else {
         throw new Error('El proveedor de pago no está disponible.');
       }
-      updated = await api<User>('/users/me/payment-method', { method: 'PUT', body: { paymentToken } });
+      const updated = await api<User>('/users/me/payment-method', { method: 'PUT', body: { paymentToken } });
       const active = currentSession();
       if (active?.user.id === updated.id) saveSession({ ...active, user: updated });
     }
