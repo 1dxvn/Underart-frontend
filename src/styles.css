@@ -138,3 +138,9 @@ footer .container { display: flex; justify-content: space-between; align-items: 
   .header-actions { min-width: 0; }
   .profile-link { max-width: 8rem; }
 }
+
+.auction-management { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+.auction-icon.button { min-width: 44px; min-height: 44px; padding: .55rem; }
+.auction-icon svg { width: 1.2rem; height: 1.2rem; }
+.auction-dialog { width: min(28rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); }
+.auction-dialog::backdrop { background: rgb(0 0 0 / .48); }

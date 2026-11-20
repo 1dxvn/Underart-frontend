@@ -120,6 +120,65 @@ function countdown(endDate: string, element: HTMLElement, completeLabel: string)
   }, 1000);
 }
 
+const editIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 20l4-.8L21 6l-3-3L5 16z"/></svg>';
+const trashIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3m4 0-1 14H6L5 6m5 4v6m4-6v6"/></svg>';
+
+function auctionManagement(auction: Auction) {
+  return `<div class="auction-management" role="group" aria-label="Gestionar subasta">
+    <button class="button secondary auction-icon" type="button" data-auction-dialog="edit" aria-label="Editar subasta" title="Editar subasta">${editIcon}</button>
+    <button class="button secondary auction-icon" type="button" data-auction-dialog="delete" aria-label="Eliminar subasta" title="Eliminar subasta">${trashIcon}</button>
+  </div>
+  <dialog class="panel auction-dialog" id="auction-edit-dialog" aria-labelledby="auction-edit-title">
+    <form id="edit-auction" class="form-stack">
+      <h2 id="auction-edit-title">Editar subasta</h2>
+      <label>${auction.type === 'DUTCH' ? 'Precio inicial' : 'Precio base'}<input name="basePrice" type="number" min="0.01" step="0.01" value="${auction.basePrice}" required></label>
+      ${auction.type === 'IMMEDIATE' || auction.immediatePurchasePrice != null ? `<label>Precio de compra inmediata<input name="immediatePurchasePrice" type="number" min="0.01" step="0.01" value="${auction.immediatePurchasePrice ?? ''}" required></label>` : ''}
+      ${auction.type === 'DUTCH' ? `<label>Precio mínimo<input name="floorPrice" type="number" min="0.01" step="0.01" value="${auction.floorPrice ?? ''}" required></label>` : ''}
+      <label>Cierre<input name="endDate" type="datetime-local" required></label>
+      <div class="actions"><button class="button" type="submit">Guardar cambios</button><button class="button secondary" type="button" data-close-dialog>Volver</button></div>${feedback}
+    </form>
+  </dialog>
+  <dialog class="panel auction-dialog" id="auction-delete-dialog" aria-labelledby="auction-delete-title">
+    <form id="delete-auction" class="form-stack">
+      <h2 id="auction-delete-title">Eliminar subasta</h2>
+      <p>La subasta se retirará del catálogo y quedará como cancelada en tu historial.</p>
+      <div class="actions"><button class="button" type="submit">Eliminar subasta</button><button class="button secondary" type="button" data-close-dialog>Volver</button></div>${feedback}
+    </form>
+  </dialog>`;
+}
+
+function bindAuctionManagement(root: HTMLElement, auction: Auction, path: string) {
+  const form = root.querySelector<HTMLFormElement>('#edit-auction');
+  if (!form) return;
+  const currency = auction.currency ?? '';
+  const storedEnd = new Date(auction.endDate);
+  const localEnd = new Date(storedEnd.getTime() - storedEnd.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  form.querySelector<HTMLInputElement>('[name="endDate"]')!.value = localEnd;
+  form.querySelectorAll<HTMLInputElement>('input[type="number"]').forEach(input => configurePriceInput(input, currency));
+  root.querySelectorAll<HTMLButtonElement>('[data-auction-dialog]').forEach(button => {
+    button.addEventListener('click', () => root.querySelector<HTMLDialogElement>(`#auction-${button.dataset.auctionDialog}-dialog`)?.showModal());
+  });
+  root.querySelectorAll<HTMLButtonElement>('[data-close-dialog]').forEach(button => {
+    button.addEventListener('click', () => button.closest('dialog')?.close());
+  });
+  bindForm(root, '#edit-auction', async data => {
+    const immediate = value(data, 'immediatePurchasePrice');
+    const floor = value(data, 'floorPrice');
+    const end = value(data, 'endDate');
+    await api(path, { method: 'PUT', body: {
+      basePrice: parsePrice(value(data, 'basePrice'), currency, 'Precio base'),
+      immediatePurchasePrice: immediate ? parsePrice(immediate, currency, 'Precio de compra inmediata') : null,
+      floorPrice: floor ? parsePrice(floor, currency, 'Precio mínimo') : null,
+      endDate: end === localEnd ? auction.endDate : new Date(end).toISOString(),
+    } });
+    if (root.isConnected) refreshView();
+  });
+  bindForm(root, '#delete-auction', async () => {
+    await api(path, { method: 'DELETE' });
+    if (root.isConnected) location.hash = '/account/auctions';
+  });
+}
+
 export async function auctionDetails(root: HTMLElement, id: string, params: URLSearchParams) {
   const path = `/auctions/${encodeURIComponent(id)}`;
   const detail = await api<AuctionDetail>(path, { anonymous: true });
@@ -147,9 +206,8 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     <div><dt>Cierre</dt><dd>${dateTime(auction.endDate)}</dd></div></dl>
     ${status === 'En curso' || scheduled ? `<p class="countdown">${scheduled ? 'Empieza en' : 'Termina en'} · <span id="countdown"></span></p>` : ''}
     ${auctionActions(detail, own)}
-    ${own && auction.status === 'ACTIVE' && !auction.bidCount ? `<form id="delete-auction" class="form-stack spaced">
-      <label class="check"><input type="checkbox" required> Confirmo que quiero retirar esta subasta del catálogo.</label>
-      <button class="button secondary" type="submit">Eliminar subasta</button>${feedback}</form>` : ''}
+    ${own && auction.status === 'ACTIVE' && Date.parse(auction.endDate) > Date.now() && !auction.bidCount
+      ? auctionManagement(auction) : ''}
     </section></div>
     <section class="history"><h2>Historial de pujas</h2><div id="bids"></div></section></div>`;
   const timer = root.querySelector<HTMLElement>('#countdown');
@@ -169,10 +227,7 @@ export async function auctionDetails(root: HTMLElement, id: string, params: URLS
     }, 3000);
   }
   bindFavorite(root, artwork);
-  bindForm(root, '#delete-auction', async () => {
-    await api(path, { method: 'DELETE' });
-    if (root.isConnected) location.hash = '/account/auctions';
-  });
+  bindAuctionManagement(root, auction, path);
   bindForm(root, '#accept-bid', async () => {
     const order = await api<Order>(`${path}/accept-bid`, { method: 'POST', body: { bidId: detail.highestBid?.id } });
     if (root.isConnected) location.hash = `/orders/${order.id}`;
